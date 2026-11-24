@@ -182,7 +182,11 @@ static bool MTLReadFunctionConstants(id entries, Indium::FunctionReflection& fun
 		}
 		if (!MTLReadEnum(object, @"type", constant.type, {
 			{@"bool", Indium::FunctionConstantType::Bool}, {@"int", Indium::FunctionConstantType::Int},
-			{@"uint", Indium::FunctionConstantType::UInt}, {@"float", Indium::FunctionConstantType::Float}}))
+			{@"uint", Indium::FunctionConstantType::UInt}, {@"float", Indium::FunctionConstantType::Float},
+			{@"char", Indium::FunctionConstantType::Char}, {@"uchar", Indium::FunctionConstantType::UChar},
+			{@"short", Indium::FunctionConstantType::Short}, {@"ushort", Indium::FunctionConstantType::UShort},
+			{@"half", Indium::FunctionConstantType::Half}, {@"long", Indium::FunctionConstantType::Long},
+			{@"ulong", Indium::FunctionConstantType::ULong}}))
 		{
 			error = MTLReflectionError(@"function constant '%@' has the type %@, which Indium cannot set", name, type);
 			return false;
