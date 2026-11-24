@@ -151,6 +151,50 @@ static bool MTLReadEmbeddedSamplers(id entries, Indium::FunctionReflection& func
 	return true;
 }
 
+// The function constants ([[function_constant(n)]]) the function reads: each one's value is the specialization
+// constant spec_id and whether it was given one the bool defined_spec_id.
+static bool MTLReadFunctionConstants(id entries, Indium::FunctionReflection& function, NSString*& error)
+{
+	if (entries == nil) return true;
+	if (![entries isKindOfClass: [NSArray class]]) {
+		error = MTLReflectionError(@"function_constants is not an array");
+		return false;
+	}
+	for (id entry in (NSArray*)entries) {
+		if (![entry isKindOfClass: [NSDictionary class]]) {
+			error = MTLReflectionError(@"a function constant is not an object");
+			return false;
+		}
+		NSDictionary* object = entry;
+		Indium::FunctionConstantInfo constant;
+		NSString* name = nil;
+		NSString* type = nil;
+		size_t specializationID = 0;
+		size_t definedSpecializationID = 0;
+		if (!MTLReadString(object, @"name", name) || [name length] == 0 ||
+			!MTLReadString(object, @"type", type) ||
+			!MTLReadIndex([object objectForKey: @"index"], constant.index) ||
+			!MTLReadIndex([object objectForKey: @"spec_id"], specializationID) || specializationID > UINT32_MAX ||
+			!MTLReadIndex([object objectForKey: @"defined_spec_id"], definedSpecializationID) || definedSpecializationID > UINT32_MAX)
+		{
+			error = MTLReflectionError(@"invalid function constant entry");
+			return false;
+		}
+		if (!MTLReadEnum(object, @"type", constant.type, {
+			{@"bool", Indium::FunctionConstantType::Bool}, {@"int", Indium::FunctionConstantType::Int},
+			{@"uint", Indium::FunctionConstantType::UInt}, {@"float", Indium::FunctionConstantType::Float}}))
+		{
+			error = MTLReflectionError(@"function constant '%@' has the type %@, which Indium cannot set", name, type);
+			return false;
+		}
+		constant.name = name.UTF8String;
+		constant.specializationID = (uint32_t)specializationID;
+		constant.definedSpecializationID = (uint32_t)definedSpecializationID;
+		function.functionConstants.push_back(constant);
+	}
+	return true;
+}
+
 static bool MTLReadBindings(NSArray* bindings, Indium::FunctionReflection& outFunction,
 	NSString*& outError)
 {
@@ -363,6 +407,10 @@ bool MTLReadMSLReflection(const char* document, size_t length,
 		if (!MTLReadEmbeddedSamplers([entryObject objectForKey: @"embedded_samplers"],
 			functionReflection, outError) ||
 			!MTLReadBindings((NSArray*)bindings, functionReflection, outError)) {
+			return false;
+		}
+
+		if (!MTLReadFunctionConstants([entryObject objectForKey: @"function_constants"], functionReflection, outError)) {
 			return false;
 		}
 
