@@ -16,6 +16,32 @@
 
 MTL_EXTERN NSErrorDomain const MTLLibraryErrorDomain = @"MTLLibraryErrorDomain";
 
+#if DARLING_METAL_ENABLED
+// The data type of a function constant of each Indium type, and the size of its value.
+static MTLDataType MTLDataTypeOfFunctionConstant(Indium::FunctionConstantType type, size_t* size = nullptr)
+{
+	MTLDataType dataType = MTLDataTypeNone;
+	size_t bytes = 0;
+	switch (type) {
+		case Indium::FunctionConstantType::Bool: dataType = MTLDataTypeBool; bytes = 1; break;
+		case Indium::FunctionConstantType::Int: dataType = MTLDataTypeInt; bytes = 4; break;
+		case Indium::FunctionConstantType::UInt: dataType = MTLDataTypeUInt; bytes = 4; break;
+		case Indium::FunctionConstantType::Float: dataType = MTLDataTypeFloat; bytes = 4; break;
+		case Indium::FunctionConstantType::Char: dataType = MTLDataTypeChar; bytes = 1; break;
+		case Indium::FunctionConstantType::UChar: dataType = MTLDataTypeUChar; bytes = 1; break;
+		case Indium::FunctionConstantType::Short: dataType = MTLDataTypeShort; bytes = 2; break;
+		case Indium::FunctionConstantType::UShort: dataType = MTLDataTypeUShort; bytes = 2; break;
+		case Indium::FunctionConstantType::Half: dataType = MTLDataTypeHalf; bytes = 2; break;
+		case Indium::FunctionConstantType::Long: dataType = MTLDataTypeLong; bytes = 8; break;
+		case Indium::FunctionConstantType::ULong: dataType = MTLDataTypeULong; bytes = 8; break;
+	}
+	if (size) {
+		*size = bytes;
+	}
+	return dataType;
+}
+#endif
+
 @interface MTLFunctionConstant ()
 - (instancetype)initWithName: (NSString*)name type: (MTLDataType)type index: (NSUInteger)index;
 @end
@@ -175,13 +201,7 @@ MTL_EXTERN NSErrorDomain const MTLLibraryErrorDomain = @"MTLLibraryErrorDomain";
 
 		NSMutableDictionary<NSString*, MTLFunctionConstant*>* constants = [NSMutableDictionary dictionary];
 		for (const auto& constant: _function->functionConstants()) {
-			MTLDataType type = MTLDataTypeNone;
-			switch (constant.type) {
-				case Indium::FunctionConstantType::Bool: type = MTLDataTypeBool; break;
-				case Indium::FunctionConstantType::Int: type = MTLDataTypeInt; break;
-				case Indium::FunctionConstantType::UInt: type = MTLDataTypeUInt; break;
-				case Indium::FunctionConstantType::Float: type = MTLDataTypeFloat; break;
-			}
+			MTLDataType type = MTLDataTypeOfFunctionConstant(constant.type);
 			NSString* constantName = [NSString stringWithUTF8String: constant.name.c_str()];
 			MTLFunctionConstant* object = [[MTLFunctionConstant alloc] initWithName: constantName type: type index: constant.index];
 			constants[constantName] = object;
@@ -340,7 +360,8 @@ MTL_UNSUPPORTED_CLASS
 
 // A function of this library, by its name and the values given for its constants, as the SHA-256 of the
 // library's digest, the name and its terminating NUL, and each value (in the order of the constant indices)
-// as a little-endian 64-bit index, the constant type's byte and the value's 32 bits in little-endian order.
+// as a little-endian 64-bit index, the constant type's byte and the value's low 32 bits (all 64 for a long or
+// ulong) in little-endian order.
 - (NSData*)archiveKeyForFunction: (NSString*)functionName
                           values: (const Indium::FunctionConstantValues&)values
 {
@@ -350,15 +371,16 @@ MTL_UNSUPPORTED_CLASS
 	const char* name = functionName.UTF8String;
 	CC_SHA256_Update(&context, name, static_cast<CC_LONG>(strlen(name) + 1));
 	for (const auto& [index, value]: values.byIndex()) {
-		unsigned char entry[13];
+		const bool wide = value.type == Indium::FunctionConstantType::Long || value.type == Indium::FunctionConstantType::ULong;
+		unsigned char entry[17];
 		for (int i = 0; i < 8; i++) {
 			entry[i] = static_cast<unsigned char>(static_cast<uint64_t>(index) >> (8 * i));
 		}
 		entry[8] = static_cast<unsigned char>(value.type);
-		for (int i = 0; i < 4; i++) {
+		for (int i = 0; i < (wide ? 8 : 4); i++) {
 			entry[9 + i] = static_cast<unsigned char>(value.bits >> (8 * i));
 		}
-		CC_SHA256_Update(&context, entry, sizeof(entry));
+		CC_SHA256_Update(&context, entry, wide ? 17 : 13);
 	}
 	NSMutableData* key = [NSMutableData dataWithLength: CC_SHA256_DIGEST_LENGTH];
 	CC_SHA256_Final(static_cast<unsigned char*>(key.mutableBytes), &context);
@@ -416,30 +438,22 @@ MTL_UNSUPPORTED_CLASS
 
 		MTLDataType type = static_cast<MTLDataType>([entry[@"type"] unsignedIntegerValue]);
 		NSData* data = entry[@"data"];
-		uint32_t bits = 0;
 		Indium::FunctionConstantType expected = constant.type;
-		bool matches = false;
-		switch (expected) {
-			case Indium::FunctionConstantType::Bool:
-				matches = type == MTLDataTypeBool && data.length == 1;
-				bits = matches && *static_cast<const uint8_t*>(data.bytes) != 0 ? 1 : 0;
-				break;
-			case Indium::FunctionConstantType::Int:
-				matches = type == MTLDataTypeInt && data.length == 4;
-				break;
-			case Indium::FunctionConstantType::UInt:
-				matches = type == MTLDataTypeUInt && data.length == 4;
-				break;
-			case Indium::FunctionConstantType::Float:
-				matches = type == MTLDataTypeFloat && data.length == 4;
-				break;
-		}
-		if (!matches) {
+		size_t size = 0;
+		if (type != MTLDataTypeOfFunctionConstant(expected, &size) || data.length != size) {
 			MTLSetError(error, MTLLibraryErrorCompileFailure, [NSString stringWithFormat: @"The value for function constant '%@' (index %lu) does not have the constant's type", constantName, (unsigned long)constant.index]);
 			return nil;
 		}
-		if (expected != Indium::FunctionConstantType::Bool) {
-			memcpy(&bits, data.bytes, sizeof(bits));
+		// the value as a scalar of its size, zero-extended
+		uint64_t bits = 0;
+		switch (data.length) {
+			case sizeof(uint8_t): { uint8_t value; memcpy(&value, data.bytes, sizeof(value)); bits = value; break; }
+			case sizeof(uint16_t): { uint16_t value; memcpy(&value, data.bytes, sizeof(value)); bits = value; break; }
+			case sizeof(uint32_t): { uint32_t value; memcpy(&value, data.bytes, sizeof(value)); bits = value; break; }
+			case sizeof(uint64_t): memcpy(&bits, data.bytes, sizeof(bits)); break;
+		}
+		if (expected == Indium::FunctionConstantType::Bool) {
+			bits = bits != 0 ? 1 : 0;
 		}
 		values.setValue(constant.index, expected, bits);
 	}
