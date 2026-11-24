@@ -228,10 +228,20 @@ int main(void) {
 
         expectRejected("an empty document", @"");
 
-        // The last one has to hold for the whole suite: a reflection of no
-        // functions is what indium refuses with "reflection describes no
-        // functions", so a reader that accepted it would push the diagnosis one
-        // layer too far down.
+        expectRejected("a version 2 document with no entry_points array",
+            @"{\"reflection_version\":2}");
+
+        // mslc's document for a source with no kernel, vertex or fragment
+        // function: a library with no functions.
+        {
+            Indium::LibraryReflection reflection;
+            NSString* err = nil;
+            BOOL accepted = read(@"{\n\t\"reflection_version\": 2,\n\t\"entry_points\": [\n\t]\n}\n",
+                                 reflection, err);
+            ok("a version 2 document with no entry points is read as no functions",
+               accepted && reflection.functions.empty());
+        }
+
         {
             Indium::LibraryReflection reflection;
             NSString* err = nil;

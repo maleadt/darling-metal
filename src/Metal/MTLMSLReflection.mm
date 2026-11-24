@@ -397,11 +397,8 @@ bool MTLReadMSLReflection(const char* document, size_t length,
 			std::string([entryPoint UTF8String]), std::move(functionReflection));
 	}
 
-	if (outReflection.functions.empty()) {
-		outError = MTLReflectionError(@"mslc's reflection describes no entry point");
-		return false;
-	}
-
+	// A version 2 document may list no entry point: mslc's reflection of a source with no kernel, vertex or
+	// fragment function, which is a library with no functions.
 	return true;
 }
 

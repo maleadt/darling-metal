@@ -1223,8 +1223,9 @@ static size_t iosurfacePixelSize(MTLPixelFormat format)
 	char* reflection = NULL;
 	char* diagnostic = NULL;
 
+	// an empty NSData may have no bytes, and mslc takes a null source as none given
 	int translated = mslc->translate(
-		static_cast<const char*>([utf8 bytes]), [utf8 length], &mslcOptions,
+		[utf8 length] ? static_cast<const char*>([utf8 bytes]) : "", [utf8 length], &mslcOptions,
 		&spirv, &spirvSize, &reflection, &diagnostic);
 
 	if (translated != 0) {
