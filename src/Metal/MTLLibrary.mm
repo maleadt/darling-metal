@@ -341,8 +341,12 @@ MTL_UNSUPPORTED_CLASS
 		_installName = nil;
 		_type = MTLLibraryTypeExecutable;
 
-		// TODO: function names. this requires a change in Indium.
-		_functionNames = nil;
+		// sorted, so a library lists its functions in the same order every time
+		NSMutableArray<NSString*>* names = [NSMutableArray array];
+		for (const auto& name: _library->functionNames()) {
+			[names addObject: [NSString stringWithUTF8String: name.c_str()]];
+		}
+		_functionNames = [[names sortedArrayUsingSelector: @selector(compare:)] retain];
 
 		_device = [device retain];
 	}
